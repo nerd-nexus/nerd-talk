@@ -1,0 +1,258 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  background-color: #f5f7fb;
+  color: #333;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 1.2rem;
+  color: #666;
+}
+
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  max-width: 900px;
+  height: 100vh;
+  margin: 0 auto;
+  background-color: white;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background-color: #4f46e5;
+  color: white;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.chat-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-info span {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.change-username-button {
+  background-color: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.change-username-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.username-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.username-input {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: none;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  width: 120px;
+}
+
+.username-save-button, .username-cancel-button {
+  background-color: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.username-save-button {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.username-save-button:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.username-cancel-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.messages-container {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.no-messages {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #999;
+  font-style: italic;
+}
+
+.message {
+  margin-bottom: 16px;
+  max-width: 70%;
+  padding: 10px 15px;
+  border-radius: 12px;
+}
+
+.my-message {
+  margin-left: auto;
+  background-color: #4f46e5;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.other-message {
+  margin-right: auto;
+  background-color: #f2f2f2;
+  border-bottom-left-radius: 4px;
+}
+
+.message-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 0.75rem;
+}
+
+.my-message .message-info {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.other-message .message-info {
+  color: #666;
+}
+
+.message-username {
+  font-weight: 600;
+}
+
+.message-content {
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.message-form {
+  display: flex;
+  padding: 15px;
+  border-top: 1px solid #eaeaea;
+  background-color: white;
+}
+
+.message-input {
+  flex: 1;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.message-input:focus {
+  border-color: #4f46e5;
+}
+
+.send-button {
+  margin-left: 10px;
+  padding: 0 20px;
+  background-color: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-button:hover {
+  background-color: #4338ca;
+}
+
+.send-button:disabled {
+  background-color: #a5a5a5;
+  cursor: not-allowed;
+}
+
+.message-local {
+  font-size: 0.7rem;
+  text-align: right;
+  font-style: italic;
+  color: #999;
+  margin-top: 4px;
+}
+
+/* 반응형 스타일 */
+@media (max-width: 768px) {
+  .chat-container {
+    height: 100vh;
+    max-width: 100%;
+  }
+  
+  .message {
+    max-width: 85%;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-header h1 {
+    font-size: 1.2rem;
+  }
+  
+  .message {
+    max-width: 90%;
+  }
+  
+  .message-form {
+    padding: 10px;
+  }
+  
+  .message-input {
+    padding: 10px;
+  }
+  
+  .send-button {
+    padding: 0 15px;
+  }
+}

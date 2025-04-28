@@ -1,0 +1,95 @@
+import React, { useEffect, useState, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { getMessages, sendMessage, subscribeToMessages } from '../services/supabase';
+import { Message as MessageType } from '../types';
+import Message from './Message';
+
+const ChatRoom: React.FC = () => {
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<MessageType[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 메시지 스크롤 맨 아래로
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // 초기 메시지 로딩
+  useEffect(() => {
+    const loadMessages = async () => {
+      try {
+        const data = await getMessages();
+        setMessages(data || []);
+        setLoading(false);
+        scrollToBottom();
+      } catch (error) {
+        console.error('메시지 로딩 오류:', error);
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+  }, []);
+
+  // 실시간 메시지 구독
+  useEffect(() => {
+    const subscription = subscribeToMessages((newMessage: MessageType) => {
+      setMessages((prev) => [...prev, newMessage]);
+      scrollToBottom();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 메시지 전송
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newMessage.trim() || !user) return;
+    
+    try {
+      // 사용자 이름을 가져올 수 있는 경우 사용, 아니면 기본값
+      const username = user.user_metadata?.username || user.email || '사용자';
+      await sendMessage(user.id, newMessage, username);
+      setNewMessage('');
+    } catch (error) {
+      console.error('메시지 전송 오류:', error);
+    }
+  };
+
+  return (
+    <div className="chat-container">
+      <div className="messages-container">
+        {loading ? (
+          <div className="loading">메시지를 불러오는 중...</div>
+        ) : (
+          <>
+            {messages.map((msg) => (
+              <Message
+                key={msg.id}
+                message={msg}
+                isCurrentUser={msg.user_id === user?.id}
+              />
+            ))}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
+      <form className="message-form" onSubmit={handleSendMessage}>
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="메시지를 입력하세요..."
+        />
+        <button type="submit">전송</button>
+      </form>
+    </div>
+  );
+};
+
+export default ChatRoom;

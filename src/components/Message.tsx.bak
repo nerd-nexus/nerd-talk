@@ -1,0 +1,28 @@
+import React from 'react';
+import { Message as MessageType } from '../types';
+
+interface MessageProps {
+  message: MessageType;
+  isCurrentUser: boolean;
+}
+
+const Message: React.FC<MessageProps> = ({ message, isCurrentUser }) => {
+  return (
+    <div className={`message ${isCurrentUser ? 'current-user' : ''}`}>
+      {!isCurrentUser && (
+        <div className="message-username">
+          {message.profile?.username || '알 수 없는 사용자'}
+        </div>
+      )}
+      <div className="message-content">{message.content}</div>
+      <div className="message-time">
+        {new Date(message.created_at).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </div>
+    </div>
+  );
+};
+
+export default Message;

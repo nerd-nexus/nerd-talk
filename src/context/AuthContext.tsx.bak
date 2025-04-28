@@ -1,0 +1,186 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '../services/supabase';
+import { Session, User, AuthResponse } from '@supabase/supabase-js';
+
+interface AuthContextType {
+  session: Session | null;
+  user: User | null;
+  signIn: (email: string, password: string) => Promise<AuthResponse>;
+  signUp: (email: string, password: string, username: string) => Promise<AuthResponse>;
+  signOut: () => Promise<void>;
+  loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // 초기 세션 검사
+    const checkSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('세션 가져오기 오류:', error);
+          return;
+        }
+        
+        setSession(data.session);
+        setUser(data.session?.user ?? null);
+      } catch (err) {
+        console.error('세션 초기화 오류:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkSession();
+
+    // 인증 상태 변경 감지
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
+        console.log('Auth 상태 변경:', event);
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
+        
+        // 새 사용자 등록 시 프로필 확인
+        if (event === 'SIGNED_IN' && currentSession?.user) {
+          try {
+            // 프로필이 있는지 확인
+            const { data: profile, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', currentSession.user.id)
+              .single();
+              
+            if (error || !profile) {
+              // 프로필이 없으면 생성
+              console.log('사용자 프로필 없음, 새로 생성합니다:', currentSession.user.id);
+              await createProfile(currentSession.user.id, currentSession.user.email || '사용자');
+            }
+          } catch (err) {
+            console.error('프로필 확인 오류:', err);
+          }
+        }
+        
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 프로필 생성 함수
+  const createProfile = async (userId: string, email: string) => {
+    try {
+      const username = email.split('@')[0]; // 이메일 앞부분을 사용자명으로 사용
+      
+      // RPC 함수 호출 시도
+      const { error: rpcError } = await supabase.rpc('create_profile', {
+        user_id: userId,
+        user_name: username
+      });
+      
+      if (rpcError) {
+        console.error('RPC 프로필 생성 오류:', rpcError);
+        
+        // 직접 삽입 시도
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert([{ id: userId, username }]);
+          
+        if (insertError) {
+          console.error('직접 프로필 삽입 오류:', insertError);
+          throw insertError;
+        }
+      }
+    } catch (error) {
+      console.error('프로필 생성 중 오류:', error);
+      throw error;
+    }
+  };
+
+  const signUp = async (email: string, password: string, username: string) => {
+    try {
+      // 사용자 등록
+      const response = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username // 메타데이터에 사용자명 저장
+          }
+        }
+      });
+
+      if (response.error) throw response.error;
+      
+      console.log('회원가입 성공:', response.data);
+
+      // 사용자 프로필 생성
+      if (response.data.user) {
+        try {
+          await createProfile(response.data.user.id, username);
+        } catch (profileError) {
+          console.error('프로필 생성 실패, 나중에 다시 시도합니다:', profileError);
+        }
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('회원가입 오류:', error);
+      throw error;
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const response = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (response.error) throw response.error;
+      
+      console.log('로그인 성공:', response.data);
+      return response;
+    } catch (error) {
+      console.error('로그인 오류:', error);
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('로그아웃 오류:', error);
+      throw error;
+    }
+  };
+
+  const value = {
+    session,
+    user,
+    signIn,
+    signUp,
+    signOut,
+    loading,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

@@ -1,73 +1,68 @@
-## 목적
+# Nerd Talk
 
-- react(next.js) 기반
-- 타입스크립트 학습
-- 패키지 배포 학습
-- 모노레포 학습(turbo-repo)
+간단한 실시간 채팅 애플리케이션입니다. React와 TypeScript를 사용하여 개발되었으며, Supabase를 백엔드로 활용합니다.
 
-## 요구사항
+## 설치 및 설정
 
-### 유틸성 함수 제작
+1. 저장소 클론:
+```bash
+git clone https://github.com/yourusername/nerd-talk.git
+cd nerd-talk
+```
 
-### 간단한 디자인 시스템 제작
+2. 의존성 설치:
+```bash
+npm install
+```
 
-- 참고 레포: https://chakra-ui.com/getting-started
-- 시스템을 구성한다 라는 느낌보단, 컴포넌트를 만든다는 느낌으로
-- 구현해야 할 것들
-    - input
-    - textarea
-    - selectbox
-    - modal
-    - button
-    - radio
-    - icon
-    - slider
-    - switch
-    - badge
-    - tag
-    - table
-    - progress
-    - spinner
-    - skeleton
-    - toast
-    - dialog
-    - tooltip
-    - popover
-- css를 어떻게 관리할 것인가 고민이 필요함
-    - 예시: shadow-dom(https://developer.mozilla.org/ko/docs/Web/API/Web_components/Using_shadow_DOM)
-    - 웹 컴포넌트
+3. Supabase 프로젝트 설정:
+   - Supabase 계정 생성 및 새 프로젝트 만들기: [https://app.supabase.io](https://app.supabase.io)
+   - `database.sql` 파일의 SQL을 Supabase SQL 편집기에 붙여넣고 실행
+   - 프로젝트 URL과 익명 API 키 복사
 
-### 채팅 제작
+4. 환경 변수 설정:
+   - `src/services/supabase.ts` 파일에서 `supabaseUrl`과 `supabaseAnonKey`를 복사한 값으로 변경
 
-- 채널톡 처럼 만들기 ( 붙일 수 있게 )
-- 필요한 기능들
-    - 1:n 채팅
-    - 채팅방
-    - sdk로 제공
-    - FE + BE (풀스택)
-    - 사진 업로드
-    - 관리자 페이지
+5. 개발 서버 실행:
+```bash
+npm start
+```
 
-## 그라운드 룰
+## 주요 기능
 
-- 코드 리뷰 기반으로
-- 코드리뷰를 할 때
-    - 어떤 기능을 왜 추가 했는지
-    - before, after 사진
-- 티켓 기반으로 작업을 나눠보기
-- 한 개의 티켓에 대한 PR 올리기
-- 티켓을 부작업으로 나눌 수 있으면 나눠보기
-- 티켓 관리는 github project 기반으로
-- 코드리뷰는 48시간 이내로
-- 이해 안 되는 부분은 디스코드로 바로 이야기 하기
-- 테스트 코드를 작성할 수 있는 형태로 만들어보기
-- 디자인 시스템은 스토리북으로 관리하기
-- 순수 함수를 최대한 발라내서, 단위테스트 작성하기
-- swc-jest 써보기
-- 백엔드는 e2e 테스트
-- db는 도커로 관리
-- db와 엮여있는 테스트를 하는 경우에는 테스트 db를 만들어서 실행해보기
-- ci/cd 구축하기
-    - PR올릴 때, tsc, lint, test, build 다 돌려보기
-- 배포는 나중에 생각해보기
+- 사용자 인증 (회원가입 및 로그인)
+- 실시간 메시지 전송 및 수신
+- 간단한 사용자 프로필
 
+## 기술 스택
+
+- React
+- TypeScript
+- Supabase (인증, 데이터베이스, 실시간 기능)
+- CSS (스타일링)
+
+## 데이터 모델
+
+- `profiles`: 사용자 프로필 정보 저장
+- `messages`: 채팅 메시지 저장
+
+## 프로젝트 구조
+
+```
+/src
+  /components        # UI 컴포넌트
+  /services          # Supabase 연결 및 API 호출
+  /types             # TypeScript 타입 정의
+  /context           # React Context (인증 관리)
+  App.tsx            # 메인 애플리케이션 컴포넌트
+  App.css            # 전역 스타일
+  index.tsx          # 애플리케이션 진입점
+```
+
+## Supabase 설정
+
+프로젝트에 필요한 Supabase 설정:
+
+1. 인증: 이메일/비밀번호 인증 활성화
+2. 데이터베이스: `database.sql` 파일의 스키마 적용
+3. 실시간 API: 'messages' 테이블에 대한 실시간 업데이트 활성화

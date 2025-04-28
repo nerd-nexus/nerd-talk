@@ -1,0 +1,131 @@
+import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+
+const Auth: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { signIn, signUp } = useAuth();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    setLoading(true);
+
+    try {
+      if (isRegister) {
+        const response = await signUp(email, password, username);
+        if (response.error) {
+          throw response.error;
+        }
+        
+        setMessage('회원가입이 완료되었습니다. 자동으로 로그인됩니다...');
+        
+        // 회원가입 후 자동 로그인 시도
+        setTimeout(async () => {
+          try {
+            const loginResponse = await signIn(email, password);
+            if (loginResponse.error) {
+              throw loginResponse.error;
+            }
+          } catch (loginError: any) {
+            console.error('자동 로그인 실패:', loginError);
+            setError('회원가입은 완료되었지만 자동 로그인에 실패했습니다. 수동으로 로그인해주세요.');
+            setIsRegister(false);
+          } finally {
+            setLoading(false);
+          }
+        }, 1500);
+      } else {
+        const response = await signIn(email, password);
+        if (response.error) {
+          throw response.error;
+        }
+        setLoading(false);
+      }
+    } catch (error: any) {
+      console.error('인증 오류:', error);
+      
+      // 오류 메시지 사용자 친화적으로 처리
+      if (error.message.includes('Email not confirmed')) {
+        setError('이메일이 확인되지 않았습니다. 잠시 후 다시 시도해주세요.');
+      } else if (error.message.includes('Invalid login credentials')) {
+        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      } else {
+        setError(error.message || '오류가 발생했습니다.');
+      }
+      
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-container">
+      <h2>{isRegister ? '회원가입' : '로그인'}</h2>
+      {message && <p className="success-message">{message}</p>}
+      <form onSubmit={handleSubmit}>
+        {isRegister && (
+          <div className="form-group">
+            <label htmlFor="username">사용자 이름</label>
+            <input
+              type="text"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              disabled={loading}
+            />
+          </div>
+        )}
+        <div className="form-group">
+          <label htmlFor="email">이메일</label>
+          <input
+            type="email"
+            id="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={loading}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="password">비밀번호</label>
+          <input
+            type="password"
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={loading}
+            minLength={6} 
+          />
+        </div>
+        {error && <p className="error">{error}</p>}
+        <button type="submit" disabled={loading}>
+          {loading ? '처리 중...' : isRegister ? '회원가입' : '로그인'}
+        </button>
+      </form>
+      <p>
+        {isRegister ? '이미 계정이 있으신가요?' : '계정이 없으신가요?'}{' '}
+        <button
+          className="toggle-auth"
+          onClick={() => {
+            setIsRegister(!isRegister);
+            setError('');
+            setMessage('');
+          }}
+          disabled={loading}
+        >
+          {isRegister ? '로그인' : '회원가입'}
+        </button>
+      </p>
+    </div>
+  );
+};
+
+export default Auth;
