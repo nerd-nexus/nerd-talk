@@ -1,5 +1,4 @@
 import { Action } from '../types/internal/action.ts';
-
 import { Middleware } from '../types/internal/store.ts';
 
 /**

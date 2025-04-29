@@ -11,6 +11,7 @@ import {
   StoreConfig,
   StoreInternal,
 } from '../types/internal/store.ts';
+import { isServer } from '../../utils/env';
 
 /**
  * 스토어 빌더 클래스 - 빌더 패턴의 시작점
@@ -26,7 +27,7 @@ export class StoreBuilder<TState extends Record<string, NonNullable<unknown>>> {
     initialState: TState,
   ): IStoreConfigBuilder<TState, NonNullable<unknown>, NonNullable<unknown>, NonNullable<unknown>> {
     // 서버 환경에서는 ServerStoreConfigBuilder를 반환
-    if (typeof window === 'undefined') {
+    if (isServer) {
       return new ServerStoreConfigBuilder<TState>({ initialState });
     } else {
       // 클라이언트 환경에서는 ClientStoreConfigBuilder를 반환

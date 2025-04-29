@@ -1,22 +1,8 @@
-/**
- * 상태 스토어를 위한 오류 경계 및 안정성 기능 모음
- *
- * 이 유틸리티는 상태 업데이트 중 오류 처리, 성능 모니터링,
- * 자가 복구 메커니즘을 제공합니다.
- */
+import { isDevelopment } from './env';
 
 /**
- * 성능 측정 관련 유형 정의
+ * 상태 스토어를 위한 오류 경계 및 안정성 기능 모음
  */
-export interface PerformanceMetrics {
-  lastUpdateDuration: number; // 마지막 업데이트 소요 시간 (ms)
-  averageUpdateDuration: number; // 평균 업데이트 소요 시간 (ms)
-  peakUpdateDuration: number; // 최대 업데이트 소요 시간 (ms)
-  totalUpdates: number; // 총 업데이트 횟수
-  errorCount: number; // 오류 발생 횟수
-  recoveryCount: number; // 자가 복구 횟수
-  lastUpdateTimestamp: number; // 마지막 업데이트 시간
-}
 
 /**
  * 예외 핸들러 타입 정의
@@ -68,52 +54,30 @@ export interface ErrorBoundaryOptions {
    * 오류 보고 처리 함수
    */
   onError?: ErrorHandler;
-
-  /**
-   * 성능 로그 기록 간격 (ms) (기본: 0, 사용 안함)
-   */
-  performanceLoggingInterval?: number;
 }
 
 // 기본 옵션 값
 const DEFAULT_OPTIONS: ErrorBoundaryOptions = {
   enabled: true,
-  enablePerformanceMonitoring: process.env.NODE_ENV !== 'production',
+  enablePerformanceMonitoring: isDevelopment,
   enableRecovery: true,
   maxRecoveryAttempts: 3,
   recoveryDelayMs: 100,
   performanceWarningThreshold: 16,
-  performanceLoggingInterval: 0,
 };
 
 /**
  * 오류 경계 및 성능 모니터링 관리자
  */
+
 export class ErrorBoundary {
   private options: Required<ErrorBoundaryOptions>;
-  private metrics: PerformanceMetrics;
   private recoveryAttempts: Map<string, number>;
-  private performanceLogTimer: number | null = null;
 
   constructor(options: ErrorBoundaryOptions = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options } as Required<ErrorBoundaryOptions>;
 
-    this.metrics = {
-      lastUpdateDuration: 0,
-      averageUpdateDuration: 0,
-      peakUpdateDuration: 0,
-      totalUpdates: 0,
-      errorCount: 0,
-      recoveryCount: 0,
-      lastUpdateTimestamp: 0,
-    };
-
     this.recoveryAttempts = new Map();
-
-    // 성능 로깅 타이머 설정
-    if (this.options.enablePerformanceMonitoring && this.options.performanceLoggingInterval > 0) {
-      this.startPerformanceLogging();
-    }
   }
 
   /**
@@ -123,28 +87,9 @@ export class ErrorBoundary {
    * @param fallback 오류 발생 시 대체 반환값
    */
   safeExecute<T>(fn: () => T, context: { actionType?: string; statePath?: string } = {}, fallback?: T): T {
-    if (!this.options.enabled) {
-      return fn();
-    }
-
-    // 성능 모니터링
-    let startTime: number | undefined;
-    if (this.options.enablePerformanceMonitoring) {
-      startTime = performance.now();
-    }
-
     try {
-      const result = fn();
-
-      // 성능 지표 업데이트
-      if (this.options.enablePerformanceMonitoring && startTime !== undefined) {
-        this.updatePerformanceMetrics(performance.now() - startTime);
-      }
-
-      return result;
+      return fn();
     } catch (error) {
-      this.metrics.errorCount++;
-
       // 오류 정보 구성
       const errorContext = {
         ...context,
@@ -205,9 +150,6 @@ export class ErrorBoundary {
     const attempts = (this.recoveryAttempts.get(id) || 0) + 1;
     this.recoveryAttempts.set(id, attempts);
 
-    // 복구 횟수 지표 업데이트
-    this.metrics.recoveryCount++;
-
     console.warn(
       `[ErrorBoundary] Recovery attempt ${attempts}/${this.options.maxRecoveryAttempts}` +
         ` for ${context.actionType || 'operation'}` +
@@ -240,109 +182,6 @@ export class ErrorBoundary {
    */
   private getContextId(context: { actionType?: string; statePath?: string }): string {
     return `${context.actionType || 'unknown'}_${context.statePath || 'global'}`;
-  }
-
-  /**
-   * 성능 지표 업데이트
-   */
-  private updatePerformanceMetrics(duration: number): void {
-    this.metrics.lastUpdateDuration = duration;
-    this.metrics.lastUpdateTimestamp = Date.now();
-    this.metrics.totalUpdates++;
-
-    // 평균 업데이트 시간 계산 (가중 평균)
-    this.metrics.averageUpdateDuration =
-      (this.metrics.averageUpdateDuration * (this.metrics.totalUpdates - 1) + duration) /
-      this.metrics.totalUpdates;
-
-    // 최대 소요 시간 업데이트
-    if (duration > this.metrics.peakUpdateDuration) {
-      this.metrics.peakUpdateDuration = duration;
-    }
-
-    // 성능 경고
-    if (duration > this.options.performanceWarningThreshold) {
-      console.warn(
-        `[ErrorBoundary] Performance warning: update took ${duration.toFixed(2)}ms, ` +
-          `exceeding threshold of ${this.options.performanceWarningThreshold}ms`,
-      );
-    }
-  }
-
-  /**
-   * 성능 로깅 시작
-   */
-  private startPerformanceLogging(): void {
-    if (this.performanceLogTimer !== null) {
-      clearInterval(this.performanceLogTimer);
-    }
-
-    this.performanceLogTimer = window.setInterval(() => {
-      console.log('[ErrorBoundary] Performance metrics:', this.getMetrics());
-    }, this.options.performanceLoggingInterval);
-  }
-
-  /**
-   * 성능 로깅 중지
-   */
-  stopPerformanceLogging(): void {
-    if (this.performanceLogTimer !== null) {
-      clearInterval(this.performanceLogTimer);
-      this.performanceLogTimer = null;
-    }
-  }
-
-  /**
-   * 현재 성능 지표 반환
-   */
-  getMetrics(): PerformanceMetrics {
-    return { ...this.metrics };
-  }
-
-  /**
-   * 성능 지표 초기화
-   */
-  resetMetrics(): void {
-    this.metrics = {
-      lastUpdateDuration: 0,
-      averageUpdateDuration: 0,
-      peakUpdateDuration: 0,
-      totalUpdates: 0,
-      errorCount: 0,
-      recoveryCount: 0,
-      lastUpdateTimestamp: 0,
-    };
-
-    this.recoveryAttempts.clear();
-  }
-
-  /**
-   * 옵션 업데이트
-   */
-  updateOptions(options: Partial<ErrorBoundaryOptions>): void {
-    const prevOptions = { ...this.options };
-    this.options = { ...this.options, ...options } as Required<ErrorBoundaryOptions>;
-
-    // 성능 로깅 상태 업데이트
-    const loggingWasEnabled =
-      prevOptions.enablePerformanceMonitoring && prevOptions.performanceLoggingInterval > 0;
-
-    const loggingNowEnabled =
-      this.options.enablePerformanceMonitoring && this.options.performanceLoggingInterval > 0;
-
-    if (!loggingWasEnabled && loggingNowEnabled) {
-      this.startPerformanceLogging();
-    } else if (loggingWasEnabled && !loggingNowEnabled) {
-      this.stopPerformanceLogging();
-    } else if (
-      loggingWasEnabled &&
-      loggingNowEnabled &&
-      prevOptions.performanceLoggingInterval !== this.options.performanceLoggingInterval
-    ) {
-      // 로깅 간격 변경 시 재시작
-      this.stopPerformanceLogging();
-      this.startPerformanceLogging();
-    }
   }
 }
 

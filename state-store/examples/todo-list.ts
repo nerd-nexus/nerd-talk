@@ -1,6 +1,7 @@
 import { ActionResult, ActionsDef, ComputedDef } from '../core/types/public-types';
 import { createLogger } from '../core/middlewares/createLogger';
 import { createStore } from '../core/createStore';
+import { fx } from '@fxts/core';
 
 // Todo 아이템 타입
 interface Todo {
@@ -70,7 +71,9 @@ export const todoStore = createStore<TodoState>()
   .computed<TodoComputedDef>({
     // 사용 가능한 필터 목록
     availableFilters: (state) => {
-      return state.filters.map((filter) => filter.id);
+      return fx(state.filters)
+        .map((filter) => filter.id)
+        .toArray();
     },
 
     // 필터링된 할 일 목록
@@ -79,25 +82,34 @@ export const todoStore = createStore<TodoState>()
       const currentFilter = state.filters.find((f) => f.id === state.currentFilter);
       // 필터가 없으면 모든 할 일 반환
       if (!currentFilter) return state.todos;
+
       // 필터 조건 적용
-      return state.todos.filter(currentFilter.predicate);
+      return fx(state.todos).filter(currentFilter.predicate).toArray();
     },
 
     // 활성(미완료) 할 일 개수
-    activeCount: (state) => state.todos.filter((todo) => !todo.completed).length,
+    activeCount: (state) =>
+      fx(state.todos)
+        .filter((todo) => !todo.completed)
+        .toArray().length,
 
     // 완료된 할 일 개수
-    completedCount: (state) => state.todos.filter((todo) => todo.completed).length,
+    completedCount: (state) =>
+      fx(state.todos)
+        .filter((todo) => todo.completed)
+        .toArray().length,
 
     // 총 할 일 개수
     totalCount: (state) => state.todos.length,
 
     // 모든 할 일이 완료되었는지 여부
-    allCompleted: (state) => state.todos.length > 0 && state.todos.every((todo) => todo.completed),
+    allCompleted: (state) => state.todos.length > 0 && fx(state.todos).every((todo) => todo.completed),
 
     // 요약 정보
     summary: (state) => {
-      const active = state.todos.filter((todo) => !todo.completed).length;
+      const active = fx(state.todos)
+        .filter((todo) => !todo.completed)
+        .toArray().length;
       const total = state.todos.length;
       return `${active} 항목 남음 / 총 ${total} 항목`;
     },
@@ -245,6 +257,38 @@ console.log(todoStore.computed.allCompleted); // true
 // 완료된 항목 모두 제거
 todoStore.actions.clearCompleted();
 console.log(todoStore.computed.totalCount); // 0
+
+const processBatchedTodos = async (todos: Todo[], concurrencyLimit = 3) => {
+  // 각 할 일 항목을 비동기적으로 처리하는 예제 (실제로는 서버 API 호출 등을 수행)
+  const processTodoAsync = async (todo: Todo): Promise<Todo> => {
+    // 실제 비동기 처리를 시뮬레이션 (1초 지연)
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return { ...todo, text: `처리됨: ${todo.text}` };
+  };
+
+  console.log('병렬 처리 시작 (최대 동시 실행 수:', concurrencyLimit, ')');
+  const startTime = Date.now();
+
+  // fx와 concurrent를 사용한 병렬 처리
+  const processedTodos = await fx(todos)
+    .toAsync()
+    .map(processTodoAsync)
+    .concurrent(concurrencyLimit) // 최대 concurrencyLimit개의 작업 동시 실행
+    .toArray();
+
+  console.log('병렬 처리 완료, 소요 시간:', (Date.now() - startTime) / 1000, '초');
+  return processedTodos;
+};
+
+// 테스트용 할 일 목록 생성
+const testTodos = Array.from({ length: 10 }, (_, i) => ({
+  id: i + 100,
+  text: `테스트 할일 ${i + 1}`,
+  completed: false,
+  createdAt: new Date(),
+}));
+
+processBatchedTodos(testTodos, 3).then((result) => console.log('처리 결과:', result));
 
 // 구독 해제
 unsubscribe();

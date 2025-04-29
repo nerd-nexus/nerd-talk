@@ -4,6 +4,7 @@
  * 이 시스템은 상태 경로를 기준으로 구독을 구성하여
  * 정확한 알림과 효율적인 업데이트 라우팅을 제공합니다.
  */
+import { isDevelopment } from './env';
 
 // 구독자 유형 정의
 export type Subscriber = {
@@ -55,7 +56,7 @@ export class SubscriptionTree {
     this.pathSubscriberMap = new Map();
     this.wildcardSubscriberMap = new Map();
   }
-  
+
   /**
    * 경로 접두사 일치 여부 확인
    * 첫 번째 경로가 두 번째 경로의 접두사인지 확인합니다.
@@ -65,11 +66,11 @@ export class SubscriptionTree {
    */
   private isPathPrefixMatch(prefix: string[], path: string[]): boolean {
     if (prefix.length > path.length) return false;
-    
+
     for (let i = 0; i < prefix.length; i++) {
       if (prefix[i] !== path[i]) return false;
     }
-    
+
     return true;
   }
 
@@ -417,23 +418,27 @@ export class SubscriptionTree {
 
           const { type, parentPath } = wildcardInfo;
           const parentSegments = this.parsePath(parentPath);
-          
+
           // 현재 변경 경로가 와일드카드 구독 패턴과 일치하는지 확인
           if (type === SINGLE_LEVEL_WILDCARD) {
             // 단일 레벨 와일드카드의 경우, 부모 경로에 하나의 추가 세그먼트가 있는지 확인
-            if (segments.length === parentSegments.length + 1 && 
-                this.isPathPrefixMatch(parentSegments, segments)) {
+            if (
+              segments.length === parentSegments.length + 1 &&
+              this.isPathPrefixMatch(parentSegments, segments)
+            ) {
               subscribersToNotify.set(subscriberId, subscriber);
             }
           } else if (type === MULTI_LEVEL_WILDCARD) {
             // 다중 레벨 와일드카드의 경우, 부모 경로가 현재 경로의 접두사인지 확인
-            if (segments.length >= parentSegments.length && 
-                this.isPathPrefixMatch(parentSegments, segments)) {
+            if (
+              segments.length >= parentSegments.length &&
+              this.isPathPrefixMatch(parentSegments, segments)
+            ) {
               subscribersToNotify.set(subscriberId, subscriber);
             }
           }
         }
-        
+
         // 기존 트리 순회 방식도 유지 (완전한 마이그레이션을 위한 점진적 접근)
         let currentNode = this.root;
 
@@ -519,8 +524,8 @@ export class SubscriptionTree {
       // 성능 측정 갱신
       this.notificationCounter += notifiedSubscribers.size;
 
-      // 성능 측정 (개발 모드에서만)
-      if (process.env.NODE_ENV !== 'production') {
+      // 성능 측정
+      if (isDevelopment) {
         const duration = performance.now() - startTime;
         if (duration > 5 || subscribersToNotify.size > 10) {
           // 성능 임계값

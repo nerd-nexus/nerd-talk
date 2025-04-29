@@ -1,6 +1,5 @@
 import { ActionsDef, AsyncActionsDef, ComputedDef } from '../types/public-types.ts';
 import { createStoreInternal } from './createStoreInternal.ts';
-
 import {
   IStoreConfigBuilder,
   IStoreDevToolsBuilder,

@@ -1,10 +1,10 @@
 import { ActionsDef, AsyncActionsDef, ComputedDef } from '../types/public-types.ts';
 import { StateManager } from './StateManager.ts';
-import { AsyncActionManager } from './asyncActions';
+import { AsyncActionManager } from './AsyncActionManager.ts';
 import { ActionManager } from './ActionManager.ts';
 import { ComputedState } from '../types/internal/state.ts';
-
 import { StoreConfig, StoreInternal } from '../types/internal/store.ts';
+import { fx } from '@fxts/core';
 
 /**
  * 스토어 생성자 - 모든 컴포넌트를 조립하여 완전한 스토어를 생성합니다.
@@ -20,19 +20,21 @@ export class StoreCreator<
   TAsyncActions extends AsyncActionsDef<TState>,
 > {
   private config: StoreConfig<TState, TComputed, TActions, TAsyncActions>;
-  private store: StoreInternal<TState, TComputed, TActions, TAsyncActions>;
-  private stateManager: StateManager<TState, TComputed>;
+  private readonly store: StoreInternal<TState, TComputed, TActions, TAsyncActions>;
+  private readonly stateManager: StateManager<TState, TComputed>;
   private asyncActionManager: AsyncActionManager<TState, TAsyncActions>;
   private actionManager: ActionManager<TState, TComputed, TActions, TAsyncActions>;
 
   constructor(config: StoreConfig<TState, TComputed, TActions, TAsyncActions>) {
     this.config = this.normalizeConfig(config);
-    this.store = {} as StoreInternal<TState, TComputed, TActions, TAsyncActions>;
 
     // 상태 관리자 초기화
     this.stateManager = new StateManager<TState, TComputed>(this.config.initialState, this.config.computed);
 
-    // 액션 관리자 초기화 (this.store 참조 전달)
+    // 스토어 객체 생성 및 기본 메서드 초기화 (ActionManager 생성 전에)
+    this.store = this.createStoreBase();
+
+    // 액션 관리자 초기화 (이제 기본 메서드가 있는 store 참조 전달)
     this.actionManager = new ActionManager<TState, TComputed, TActions, TAsyncActions>(
       this.config.actions as TActions,
       this.store,
@@ -45,12 +47,12 @@ export class StoreCreator<
       this.stateManager._setState.bind(this.stateManager),
     );
 
-    // 스토어 초기화
-    this.initializeStore();
+    // 나머지 스토어 기능 초기화 (액션, 계산된 값 등)
+    this.completeStoreInitialization();
   }
 
   /**
-   * 스토어를 생성하고 반환합니다.
+   * 완전히 초기화된 스토어를 반환합니다.
    * @returns 생성된 스토어 인스턴스
    */
   createStore(): StoreInternal<TState, TComputed, TActions, TAsyncActions> {
@@ -58,11 +60,15 @@ export class StoreCreator<
   }
 
   /**
-   * 스토어 객체와 컴포넌트들을 초기화합니다.
+   * 기본 스토어 객체를 생성합니다. (상태 관련 기본 메서드만 포함)
+   * ActionManager에 전달되기 전에 호출됩니다.
    */
-  private initializeStore(): void {
-    // 기본 메서드 정의
-    Object.assign(this.store, {
+  private createStoreBase(): StoreInternal<TState, TComputed, TActions, TAsyncActions> {
+    // 기본 스토어 객체 생성
+    const storeBase = {} as StoreInternal<TState, TComputed, TActions, TAsyncActions>;
+
+    // 기본 메서드 정의 (액션 관련 메서드 제외)
+    Object.assign(storeBase, {
       getState: this.stateManager.getState.bind(this.stateManager),
       subscribe: this.stateManager.subscribe.bind(this.stateManager),
       subscribeState: this.stateManager.subscribeState.bind(this.stateManager),
@@ -70,6 +76,14 @@ export class StoreCreator<
       _setState: this.stateManager._setState.bind(this.stateManager),
     });
 
+    return storeBase;
+  }
+
+  /**
+   * 스토어 객체의 나머지 부분을 초기화합니다.
+   * ActionManager 생성 후에 호출됩니다.
+   */
+  private completeStoreInitialization(): void {
     // 디스패치 함수 생성 및 설정
     this.store.dispatch = this.actionManager.createDispatcher(
       this.stateManager._setState.bind(this.stateManager),
@@ -115,17 +129,16 @@ export class StoreCreator<
    * 상태 속성을 스토어에 추가합니다.
    */
   private addStateProperties(): void {
-    const descriptors: PropertyDescriptorMap = {};
-
-    for (const key in this.config.initialState) {
-      if (Object.prototype.hasOwnProperty.call(this.config.initialState, key)) {
-        descriptors[key] = {
+    const descriptors = fx(Object.keys(this.config.initialState))
+      .filter((key) => Object.prototype.hasOwnProperty.call(this.config.initialState, key))
+      .reduce((acc, key) => {
+        acc[key] = {
           get: () => this.stateManager.getState()[key],
           enumerable: true,
           configurable: false,
         };
-      }
-    }
+        return acc;
+      }, {} as PropertyDescriptorMap);
 
     Object.defineProperties(this.store, descriptors);
   }
@@ -134,17 +147,19 @@ export class StoreCreator<
    * 계산된 속성을 계산된 네임스페이스에 추가합니다.
    */
   private addComputedProperties(computedNamespace: ComputedState<TState, TComputed>): void {
-    const descriptors: PropertyDescriptorMap = {};
+    const computed = this.config.computed;
+    if (!computed) return;
 
-    for (const key in this.config.computed) {
-      if (Object.prototype.hasOwnProperty.call(this.config.computed, key)) {
-        descriptors[key] = {
+    const descriptors = fx(Object.keys(computed))
+      .filter((key) => Object.prototype.hasOwnProperty.call(this.config.computed, key))
+      .reduce((acc, key) => {
+        acc[key] = {
           get: () => this.stateManager.getComputedValue(key),
           enumerable: true,
           configurable: false,
         };
-      }
-    }
+        return acc;
+      }, {} as PropertyDescriptorMap);
 
     Object.defineProperties(computedNamespace, descriptors);
   }

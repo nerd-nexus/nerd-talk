@@ -1,46 +1,15 @@
 import { current, isDraft } from 'immer';
 import { LRUCache } from './lruCache';
 import { getObjectType, detectCycle, createVisitedMap, VisitedMap } from './objectTraversal'; // 경로 확인 필요
+import { calculateCacheSizeByDevice, isDevelopment } from './env';
 
-// 비교 결과를 캐싱하기 위한 LRU 캐시 시스템
-// 키: 객체 쌍의 ID를 조합한 문자열, 값: 비교 결과
-
-// 메모리 크기 기반 동적 캐시 사이즈 계산 (TypeScript 타입 호환성 개선)
 function calculateCacheSize(): number {
-  // 기본값: 중간 크기
-  const DEFAULT_CACHE_SIZE = 500;
-  const LOW_MEMORY_CACHE_SIZE = 200;
-  const HIGH_MEMORY_CACHE_SIZE = 1000;
-
-  try {
-    // 브라우저 환경 확인
-    if (typeof window === 'undefined') {
-      return DEFAULT_CACHE_SIZE; // 비브라우저 환경
-    }
-
-    // 모바일 장치 감지 (User-Agent 기반 휴리스틱)
-    const isMobileDevice =
-      typeof navigator !== 'undefined' &&
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    if (isMobileDevice) {
-      return LOW_MEMORY_CACHE_SIZE; // 모바일 장치는 작은 캐시 사용
-    }
-
-    // 고사양 환경 감지 (메모리, 코어 수 등 대신 화면 크기 기반 휴리스틱)
-    if (typeof window !== 'undefined' && window.screen) {
-      const hasLargeScreen = window.screen.width > 1920 || window.screen.height > 1080;
-      if (hasLargeScreen) {
-        return HIGH_MEMORY_CACHE_SIZE; // 대형 화면은 고사양으로 간주
-      }
-    }
-  } catch (e) {
-    // 오류가 발생하면 기본값 사용
-    console.debug('[Store] Error detecting environment, using default cache size');
-  }
-
-  // 기본값: 중간 크기
-  return DEFAULT_CACHE_SIZE;
+  // 환경 감지 유틸리티 사용
+  return calculateCacheSizeByDevice({
+    defaultSize: 500,
+    lowEndSize: 200,
+    highEndSize: 1000,
+  });
 }
 
 const COMPARE_CACHE_SIZE = calculateCacheSize();
@@ -50,7 +19,7 @@ const COMPARE_CACHE_TTL = 60000; // 캐시 유효 시간 (1분)
 const compareCache = new LRUCache<string, boolean>(COMPARE_CACHE_SIZE, COMPARE_CACHE_TTL);
 
 // 로깅 (개발 모드에서만)
-if (process.env.NODE_ENV === 'development') {
+if (isDevelopment) {
   console.debug(`[Store] Compare cache initialized with size ${COMPARE_CACHE_SIZE}`);
 }
 
@@ -63,7 +32,8 @@ function getObjectId(obj: object): number {
   if (!objectIdMap.has(obj)) {
     objectIdMap.set(obj, nextObjectId++);
   }
-  return objectIdMap.get(obj) as number;
+  // null이 아님이 보장되므로 기본값 제공
+  return objectIdMap.get(obj) ?? nextObjectId++;
 }
 
 // 두 객체의 비교를 위한 캐시 키 생성
@@ -151,8 +121,12 @@ export function deepEqual(
   // 7. 객체 타입인데 해제 후 null이 된 경우
   if (unwrappedA == null || unwrappedB == null) return false;
 
+  // unwrapped 값이 객체임을 확인하고 타입 단언
+  const objectA = unwrappedA as object;
+  const objectB = unwrappedB as object;
+
   // 8. 순환 참조 감지 - objectTraversal 유틸리티 사용
-  if (detectCycle(unwrappedA as object, unwrappedB as object, visited)) {
+  if (detectCycle(objectA, objectB, visited)) {
     // 순환 참조가 감지되면 이미 비교 중이거나 비교 완료된 쌍으로 간주
     // 현재 로직에서는 순환을 만나면 같다고 가정 (구현에 따라 다를 수 있음)
     // 또는 이전 비교 결과를 visited 맵에서 가져올 수도 있음 (detectCycle 수정 필요)
@@ -160,9 +134,10 @@ export function deepEqual(
   }
 
   // 캐시 확인 (LRU 캐시 사용) - 순환 참조 감지 후에 수행
-  const cacheKey = createCacheKey(unwrappedA as object, unwrappedB as object);
+  const cacheKey = createCacheKey(objectA, objectB);
   if (compareCache.has(cacheKey)) {
-    return compareCache.get(cacheKey) as boolean;
+    // null이 아님이 보장됨 - 기본값으로 false 제공
+    return compareCache.get(cacheKey) ?? false;
   }
 
   let result: boolean; // 비교 결과를 저장할 변수
@@ -184,8 +159,8 @@ export function deepEqual(
         result = (unwrappedA as RegExp).toString() === (unwrappedB as RegExp).toString();
         break;
       case 'map': {
-        const mapA = unwrappedA as Map<any, any>;
-        const mapB = unwrappedB as Map<any, any>;
+        const mapA = unwrappedA as Map<unknown, unknown>;
+        const mapB = unwrappedB as Map<unknown, unknown>;
         if (mapA.size !== mapB.size) {
           result = false;
         } else {
@@ -200,32 +175,83 @@ export function deepEqual(
         break;
       }
       case 'set': {
-        const setA = unwrappedA as Set<any>;
-        const setB = unwrappedB as Set<any>;
+        const setA = unwrappedA as Set<unknown>;
+        const setB = unwrappedB as Set<unknown>;
+
+        // 크기가 다르면 빠르게 false 반환
         if (setA.size !== setB.size) {
           result = false;
+          break;
+        }
+
+        // 빈 Set은 항상 같음
+        if (setA.size === 0) {
+          result = true;
+          break;
+        }
+
+        // 원시 타입만 있는지 확인 (최적화를 위함)
+        let allPrimitives = true;
+        // 작은 샘플로 원시 타입만 있는지 빠르게 확인
+        const sampleA = Array.from(setA).slice(0, 3);
+        for (const item of sampleA) {
+          if (item !== null && typeof item === 'object') {
+            allPrimitives = false;
+            break;
+          }
+        }
+
+        if (allPrimitives) {
+          // 원시 타입만 있다면 String 변환 후 간단히 비교할 수 있음
+          // (모든 항목이 원시 타입이면 이 방법이 훨씬 빠름)
+          const stringSetB = new Set(Array.from(setB).map((item) => String(item)));
+          result = Array.from(setA).every((item) => stringSetB.has(String(item)));
         } else {
-          result = true; // 기본적으로는 같다고 가정
-          if (setA.size === 0) {
-            result = true; // 빈 Set은 항상 같음
-          } else {
-            // 모든 요소가 다른 Set에 deepEqual한지 확인
-            // 효율성을 위해 Set B의 요소를 임시 배열이나 Map으로 변환 고려 가능
-            const tempBValues = Array.from(setB);
-            for (const itemA of setA) {
-              const foundMatch = tempBValues.some((itemB) => deepEqual(itemA, itemB, depth + 1, visited));
-              if (!foundMatch) {
-                result = false;
-                break;
+          const bValues = Array.from(setB);
+          const matchedIndices = new Set<number>();
+
+          result = true;
+          for (const itemA of setA) {
+            let matched = false; // 매치 여부 플래그
+
+            if (itemA === null || typeof itemA !== 'object') {
+              for (let i = 0; i < bValues.length; i++) {
+                if (matchedIndices.has(i)) continue;
+                if (bValues[i] === itemA) {
+                  matchedIndices.add(i);
+                  matched = true;
+                  break;
+                }
               }
+            } else {
+              for (let i = 0; i < bValues.length; i++) {
+                if (matchedIndices.has(i)) continue;
+
+                const itemB = bValues[i];
+                if (itemB === null || typeof itemA !== typeof itemB) {
+                  continue;
+                }
+
+                if (deepEqual(itemA, itemB, depth + 1, visited)) {
+                  matchedIndices.add(i);
+                  matched = true;
+                  break;
+                }
+              }
+            }
+
+            if (!matched) {
+              result = false;
+              break;
             }
           }
         }
+
         break;
       }
       case 'array': {
-        const arrA = unwrappedA as any[];
-        const arrB = unwrappedB as any[];
+        const arrA = unwrappedA as unknown[];
+        const arrB = unwrappedB as unknown[];
         if (arrA.length !== arrB.length) {
           result = false;
         } else {
@@ -261,8 +287,8 @@ export function deepEqual(
       }
       case 'object': {
         // 일반 객체 비교 (Plain Object)
-        const objA = unwrappedA as Record<string, any>;
-        const objB = unwrappedB as Record<string, any>;
+        const objA = unwrappedA as Record<string, unknown>;
+        const objB = unwrappedB as Record<string, unknown>;
         const keysA = Object.keys(objA);
         const keysB = Object.keys(objB);
 
@@ -274,7 +300,7 @@ export function deepEqual(
           } else if (keysA.length < 10) {
             result = true;
             for (const key of keysA) {
-              if (!Object.prototype.hasOwnProperty.call(objB, key)) {
+              if (!Object.hasOwn(objB, key)) {
                 result = false;
                 break;
               }
@@ -306,17 +332,12 @@ export function deepEqual(
   // 10. 결과 캐싱 (LRU 캐시 사용)
   compareCache.set(cacheKey, result);
 
-  // 순환 참조 감지 맵에서 현재 비교 쌍 제거 (다음 비교에 영향 없도록)
-  // detectCycle 함수 내부에서 처리되므로 여기서는 필요 없을 수 있음 (구현 확인 필요)
-  // visited.get(unwrappedA as object)?.delete(unwrappedB as object);
-
   return result;
 }
 
 /**
  * 두 객체 간의 구조적 변경을 빠르게 감지하는 유틸리티 함수
- * 키의 존재 여부와 객체 구조 변경에 초점을 맞춤
- * 이 함수는 objectTraversal 유틸리티를 직접 사용하지는 않음.
+ * 키의 존재 여부와 객체 구조 변경에 초점을 맞추며 값 비교는 하지 않음
  *
  * @param currentState 현재 상태 객체
  * @param nextState 다음 상태 객체
@@ -337,77 +358,63 @@ export function detectStructuralChanges<T extends Record<string, any>>(
     return typeof currentState !== typeof nextState || currentState !== nextState;
   }
 
-  // 키 수 먼저 비교 (빠른 경로)
-  const currentKeys = Object.keys(currentState);
-  const nextKeys = Object.keys(nextState);
+  // 단일 깊이 구조 검사를 위한 최적화된 함수
+  return hasStructuralDifferences(currentState, nextState);
+}
 
-  if (currentKeys.length !== nextKeys.length) {
+/**
+ * 두 객체 간의 구조적 차이를 검사하는 내부 헬퍼 함수
+ * 성능을 위해 최적화되었으며 값 비교는 수행하지 않음
+ *
+ * @param current 현재 객체
+ * @param next 다음 객체
+ * @returns 구조적 차이가 있으면 true, 없으면 false
+ */
+function hasStructuralDifferences(current: unknown, next: unknown): boolean {
+  // 기본 타입 체크
+  const currentType = getObjectType(current);
+  const nextType = getObjectType(next);
+
+  // 타입이 다르면 구조적 차이 있음
+  if (currentType.type !== nextType.type) {
     return true;
   }
 
-  // Map을 사용한 고속 키 존재 여부 확인 (키 수가 많은 경우)
-  if (currentKeys.length > 10) {
-    const nextKeySet = new Set(nextKeys);
-    for (const key of currentKeys) {
-      if (!nextKeySet.has(key)) {
-        return true;
-      }
-    }
-  } else {
-    // 키 수가 적은 경우 직접 순회
-    for (const key of currentKeys) {
-      // nextState에 키가 없는 경우 구조 변경
-      if (!Object.prototype.hasOwnProperty.call(nextState, key)) {
-        return true;
-      }
-    }
-  }
+  // 객체 타입별 처리
+  switch (currentType.type) {
+    case 'array':
+      // 배열은 길이만 비교
+      return (current as unknown[]).length !== (next as unknown[]).length;
 
-  // 중첩 객체 구조 비교 (1단계 깊이만)
-  for (const key of currentKeys) {
-    // nextState에 키가 없으면 위에서 이미 걸렀으므로 항상 존재한다고 가정 가능
-    const currentValue = currentState[key];
-    const nextValue = nextState[key as keyof typeof nextState]; // nextState는 Partial<T>일 수 있음
+    case 'object': {
+      // 객체는 키 비교
+      const currentKeys = Object.keys(current as Record<string, unknown>);
+      const nextKeys = Object.keys(next as Record<string, unknown>);
 
-    const currentTypeInfo = getObjectType(currentValue);
-    const nextTypeInfo = getObjectType(nextValue);
-
-    // 타입이 다르면 구조 변경 (예: 객체 -> 배열)
-    if (currentTypeInfo.type !== nextTypeInfo.type) {
-      return true;
-    }
-
-    // 둘 다 배열인 경우 길이 비교
-    if (currentTypeInfo.type === 'array') {
-      if ((currentValue as any[]).length !== (nextValue as any[]).length) {
-        return true;
-      }
-      // 배열 내용은 deepEqual에서 비교하므로 여기서는 길이만 확인
-      continue;
-    }
-
-    if (currentTypeInfo.type === 'object') {
-      const oldInnerKeys = Object.keys(currentValue as object);
-      const newInnerKeys = Object.keys(nextValue as object);
-
-      if (oldInnerKeys.length !== newInnerKeys.length) {
+      // 키 개수가 다르면 구조적 차이 있음
+      if (currentKeys.length !== nextKeys.length) {
         return true;
       }
 
-      if (oldInnerKeys.length > 10) {
-        const newInnerKeySet = new Set(newInnerKeys);
-        if (oldInnerKeys.some((k) => !newInnerKeySet.has(k))) {
-          return true;
-        }
+      // 키 존재 여부 검사 (최적화)
+      if (currentKeys.length > 10) {
+        const nextKeySet = new Set(nextKeys);
+        return currentKeys.some((key) => !nextKeySet.has(key));
       } else {
-        if (oldInnerKeys.some((k) => !Object.prototype.hasOwnProperty.call(nextValue, k))) {
-          return true;
-        }
+        return currentKeys.some((key) => !Object.hasOwn(next as object, key));
       }
     }
-    // 다른 타입(Map, Set 등)은 값 비교는 deepEqual에 맡기고 여기서는 구조(타입)만 확인
-  }
 
-  // 위 모든 검사를 통과하면 구조적 변경 없음
-  return false;
+    case 'map':
+      // Map은 크기만 비교
+      return (current as Map<unknown, unknown>).size !== (next as Map<unknown, unknown>).size;
+
+    case 'set':
+      // Set은 크기만 비교
+      return (current as Set<unknown>).size !== (next as Set<unknown>).size;
+
+    default:
+      // 다른 타입(Date, RegExp 등)은 인스턴스 비교만 수행
+      return false; // 이미 타입 체크를 통과했으므로 구조적으로는 같다고 간주
+  }
 }

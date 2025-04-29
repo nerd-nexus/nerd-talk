@@ -56,35 +56,58 @@ export class LRUCache<K, V> {
   }
 
   /**
+   * TTL 체크를 수행하는 공통 함수
+   * @private
+   * @param key 검사할 키
+   * @returns 만료되었으면 true, 아니면 false
+   */
+  private isExpired(key: K): boolean {
+    if (this.ttl === null) {
+      return false;
+    }
+
+    const timestamp = this.timestamps.get(key) || 0;
+    const now = Date.now();
+    return now - timestamp > this.ttl;
+  }
+
+  /**
+   * 타임스탬프를 현재 시간으로 업데이트
+   * @private
+   * @param key 업데이트할 키
+   */
+  private updateTimestamp(key: K): void {
+    if (this.ttl !== null) {
+      this.timestamps.set(key, Date.now());
+    }
+  }
+
+  /**
    * 캐시에서 키에 해당하는 값을 가져옵니다.
    * 키가 존재하면 해당 노드를 가장 최근에 사용된 위치로 이동합니다.
    * @param key 찾을 키
    * @returns 값 또는 undefined (키가 없거나 만료된 경우)
    */
   get(key: K): V | undefined {
-    // 캐시에 키가 없으면 undefined 반환
-    if (!this.cache.has(key)) {
+    // 캐시에 키가 없으면 즉시 undefined 반환
+    const node = this.cache.get(key);
+    if (!node) {
       return undefined;
     }
 
     // TTL 체크 - 만료된 경우 제거하고 undefined 반환
-    if (this.ttl !== null) {
-      const timestamp = this.timestamps.get(key) || 0;
-      const now = Date.now();
-      if (now - timestamp > this.ttl) {
-        this.delete(key);
-        return undefined;
-      }
-      this.timestamps.set(key, now);
+    if (this.isExpired(key)) {
+      this.delete(key);
+      return undefined;
     }
 
-    // 노드를 찾아서 가장 최근 사용 위치로 이동
-    const node = this.cache.get(key);
-    if (node) {
-      this.moveToHead(node);
-    }
+    // 접근 시간 업데이트
+    this.updateTimestamp(key);
 
-    return node?.value;
+    // 가장 최근 사용 위치로 이동
+    this.moveToHead(node);
+
+    return node.value;
   }
 
   /**
@@ -103,9 +126,7 @@ export class LRUCache<K, V> {
         this.moveToHead(node);
       }
 
-      if (this.ttl !== null) {
-        this.timestamps.set(key, Date.now());
-      }
+      this.updateTimestamp(key);
       return;
     }
 
@@ -131,9 +152,8 @@ export class LRUCache<K, V> {
     // 캐시 맵에 노드 추가
     this.cache.set(key, newNode);
 
-    if (this.ttl !== null) {
-      this.timestamps.set(key, Date.now());
-    }
+    // 타임스탬프 설정
+    this.updateTimestamp(key);
   }
 
   /**
@@ -148,13 +168,9 @@ export class LRUCache<K, V> {
     }
 
     // TTL 체크
-    if (this.ttl !== null) {
-      const timestamp = this.timestamps.get(key) || 0;
-      const now = Date.now();
-      if (now - timestamp > this.ttl) {
-        this.delete(key);
-        return false;
-      }
+    if (this.isExpired(key)) {
+      this.delete(key);
+      return false;
     }
 
     return true;
@@ -232,15 +248,13 @@ export class LRUCache<K, V> {
       return 0;
     }
 
-    const now = Date.now();
     let count = 0;
 
     // 현재 캐시의 모든 키를 배열로 가져옴
     const keys = Array.from(this.cache.keys());
 
     for (const key of keys) {
-      const timestamp = this.timestamps.get(key) || 0;
-      if (now - timestamp > this.ttl) {
+      if (this.isExpired(key)) {
         this.delete(key);
         count++;
       }

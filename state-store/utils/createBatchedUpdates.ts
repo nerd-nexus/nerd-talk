@@ -1,10 +1,18 @@
+import { isServer } from './env';
+
 /**
  * 상태 업데이트를 우선순위 기반으로 일괄 처리하는 유틸리티를 생성합니다.
  * 짧은 시간 내에 여러 업데이트가 발생하면 하나의 렌더링 주기에 합쳐서 처리합니다.
  *
+ * 서버와 클라이언트 환경 모두에서 동작하도록 설계되었습니다.
+ * 서버 환경에서는 동기적으로 즉시 실행됩니다.
+ *
  * @returns 배치 업데이트 관리 객체
  */
 export function createBatchedUpdates() {
+  // 타이머 타입 정의 (Node.js와 브라우저 환경 모두 호환)
+  type Timer = ReturnType<typeof setTimeout> | number;
+
   // 내부 상태
   const state = {
     // 보류 중인 업데이트 큐 (우선순위별로 구분)
@@ -13,7 +21,7 @@ export function createBatchedUpdates() {
       normal: [] as Array<{ id?: string; fn: () => void }>,
       low: [] as Array<{ id?: string; fn: () => void }>,
     },
-    rafId: null as number | null,
+    rafId: null as Timer | null,
     lastUpdateTime: 0,
     isProcessing: false,
     performanceSupported: typeof performance !== 'undefined' && typeof performance.now === 'function',
@@ -31,8 +39,11 @@ export function createBatchedUpdates() {
     state.isProcessing = true;
 
     // 상태 초기화를 먼저 수행
-    state.rafId = null;
-    // timeoutId 관련 코드 제거
+    if (state.rafId !== null) {
+      clearTimeout(state.rafId);
+      state.rafId = null;
+    }
+
     state.lastUpdateTime = getNow();
 
     // 큐에서 업데이트 가져오기 (우선순위 순서로)
@@ -74,14 +85,39 @@ export function createBatchedUpdates() {
 
   /**
    * 업데이트 실행을 예약하는 함수
-   * 일관된 성능을 위해 requestAnimationFrame만 사용하도록 최적화
+   * 우선순위에 따라 다른 스케줄링 전략 사용
+   * 서버 환경에서는 즉시 실행됨
    */
+  // requestAnimationFrame의 사용 가능 여부 확인
+  const hasRequestAnimationFrame = typeof requestAnimationFrame === 'function';
+
   const scheduleFlush = (): void => {
+    // 서버 환경에서는 즉시 실행
+    if (isServer) {
+      flushUpdates();
+      return;
+    }
+
     // 이미 예약된 업데이트가 있으면 새로 예약하지 않음
     if (state.rafId !== null) return;
 
-    // 모든 경우에 requestAnimationFrame 사용
-    state.rafId = requestAnimationFrame(flushUpdates);
+    // 고우선순위 업데이트가 있는지 확인
+    const hasHighPriorityUpdates = state.pendingUpdates.high.length > 0;
+
+    if (hasHighPriorityUpdates) {
+      // 고우선순위 업데이트가 있으면 setTimeout(0)을 사용하여 즉시 실행 큐에 넣음
+      // 이는 requestAnimationFrame보다 빠르게 실행됨
+      state.rafId = setTimeout(flushUpdates, 0) as unknown as number;
+    } else {
+      // 일반 또는 저우선순위 업데이트 스케줄링
+      // requestAnimationFrame이 사용 가능한 환경에서만 사용, 그렇지 않으면 setTimeout 사용
+      if (hasRequestAnimationFrame) {
+        state.rafId = requestAnimationFrame(flushUpdates);
+      } else {
+        // 폴백: 브라우저 환경이지만 requestAnimationFrame이 없는 경우
+        state.rafId = setTimeout(flushUpdates, 16) as unknown as number; // 약 60fps에 해당하는 시간
+      }
+    }
   };
 
   /**
@@ -180,11 +216,10 @@ export function createBatchedUpdates() {
      */
     flushUpdatesImmediately(): void {
       if (state.rafId !== null) {
-        cancelAnimationFrame(state.rafId);
+        // setTimeout으로 예약된 경우
+        clearTimeout(state.rafId);
         state.rafId = null;
       }
-
-      // timeoutId는 더 이상 사용하지 않음
 
       flushUpdates();
     },

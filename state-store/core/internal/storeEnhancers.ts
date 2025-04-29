@@ -1,7 +1,7 @@
 import { ActionsDef, AsyncActionsDef, ComputedDef } from '../types/public-types.ts';
 import { Action } from '../types/internal/action.ts';
-
 import { Middleware, StoreInternal } from '../types/internal/store.ts';
+import { isDevelopment } from '../../utils/env';
 
 /**
  * 액션 히스토리 항목 인터페이스
@@ -27,6 +27,27 @@ declare global {
     };
   }
 }
+
+/**
+ * DevTools 확장 메서드 인터페이스
+ */
+interface DevToolsMethods {
+  getActionHistory: () => ActionHistoryItem[];
+  jumpToAction: (actionId: number) => void;
+  getCurrentActionId: () => number | null;
+}
+
+/**
+ * 확장된 스토어 타입 (디버깅용)
+ */
+type StoreWithDevTools<
+  TState extends Record<string, NonNullable<unknown>>,
+  TComputed extends ComputedDef<TState>,
+  TActions extends ActionsDef<TState>,
+  TAsyncActions extends AsyncActionsDef<TState>,
+> = StoreInternal<TState, TComputed, TActions, TAsyncActions> & {
+  __DEVTOOLS__?: DevToolsMethods;
+};
 
 /**
  * 미들웨어를 스토어에 적용합니다.
@@ -150,7 +171,8 @@ export function connectDevTools<
       actionHistory = [initialHistoryItem];
       currentActionId = initialActionId;
     } catch (connectError) {
-      throw new Error('Failed to connect to Redux DevTools: ' + (connectError as Error).message);
+      const error = connectError instanceof Error ? connectError : new Error(String(connectError));
+      throw new Error('Failed to connect to Redux DevTools: ' + error.message);
     }
 
     // 원래 dispatch 함수 저장
@@ -232,10 +254,18 @@ export function connectDevTools<
         };
 
         // 개발 환경에서 스택 트레이스 추가
-        if (process.env.NODE_ENV === 'development') {
+        if (isDevelopment) {
           try {
-            // 타입 확장을 통해 stackTrace 속성 추가
-            (actionToSend.meta as any).stackTrace = new Error().stack?.split('\n').slice(2).join('\n');
+            // 액션 메타 데이터에 스택 트레이스 추가
+            if (actionToSend.meta && typeof actionToSend.meta === 'object') {
+              const stackTrace = new Error().stack;
+              if (stackTrace) {
+                // 명시적 타입 단언 대신 안전한 객체 확장
+                Object.assign(actionToSend.meta, {
+                  stackTrace: stackTrace.split('\n').slice(2).join('\n'),
+                });
+              }
+            }
           } catch (e) {
             // 스택 트레이스 캡처 실패 무시
           }
@@ -277,7 +307,7 @@ export function connectDevTools<
 
             // 초기 상태 복원
             try {
-              const initialState = structuredClone(initialHistoryItem.state);
+              const initialState = structuredClone(initialHistoryItem.state) as Partial<TState>;
               originalSetState(initialState);
               return; // 초기 상태 복원 성공시 종료
             } catch (initialError) {
@@ -312,7 +342,7 @@ export function connectDevTools<
         }
 
         // 액션의 저장된 상태로 복원 (전체 상태를 한번에 업데이트)
-        originalSetState(stateToRestore);
+        originalSetState(stateToRestore as Partial<TState>);
       } catch (error) {
         // 타임 트래블 오류 무시
       } finally {
@@ -384,8 +414,12 @@ export function connectDevTools<
     });
 
     // 스토어에 디버깅 유틸리티 추가 (개발 환경에서만)
-    if (process.env.NODE_ENV === 'development') {
-      (store as any).__DEVTOOLS__ = {
+    if (isDevelopment) {
+      // 타입 안전성을 위해 스토어를 확장된 인터페이스로 캐스팅
+      const storeWithDevTools = store as StoreWithDevTools<TState, TComputed, TActions, TAsyncActions>;
+
+      // DevTools 메서드 추가
+      storeWithDevTools.__DEVTOOLS__ = {
         getActionHistory: () => [...actionHistory],
         jumpToAction,
         getCurrentActionId: () => currentActionId,

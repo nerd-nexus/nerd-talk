@@ -1,7 +1,7 @@
 import { ActionsDef, AsyncActionsDef, ComputedDef } from '../types/public-types.ts';
 import { Action, ActionsApi } from '../types/internal/action.ts';
-
 import { StoreInternal } from '../types/internal/store.ts';
+import { fx, keys } from '@fxts/core';
 
 /**
  * 액션 관리자 - 동기 액션을 처리하고 관리합니다.
@@ -45,20 +45,18 @@ export class ActionManager<
 
   /**
    * 액션 API를 생성합니다.
-   * @param dispatch 디스패치 함수
    * @returns 액션 API 객체
    */
   createActionsApi(): ActionsApi<TState, TActions, TComputed, TAsyncActions> {
     const api = {} as ActionsApi<TState, TActions, TComputed, TAsyncActions>;
 
-    for (const key in this.actions) {
-      if (Object.prototype.hasOwnProperty.call(this.actions, key)) {
-        const actionFn = this.actions[key];
-        if (actionFn) {
-          api[key as keyof TActions] = this.createActionWrapper(key, actionFn);
-        }
-      }
-    }
+    fx(keys(this.actions))
+      .filter((key) => Object.hasOwn(this.actions, key) && !!this.actions[key])
+      .each((key) => {
+        const actionKey = key as keyof TActions;
+        const actionFn = this.actions[actionKey];
+        api[actionKey] = this.createActionWrapper(key, actionFn);
+      });
 
     return api;
   }
